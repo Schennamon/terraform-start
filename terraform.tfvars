@@ -64,5 +64,40 @@ alb_name = "ALBRailsAPI"
 
 alb_type = "application"
 
+############
+# SG  Vars #
+############
+
+ecs_cidr_rules = [
+  {
+    description = "Ingress rule for postgres"
+    type        = "ingress"
+    port        = 5432
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  },
+  {
+    description = "Ingress rule for redis"
+    type        = "ingress"
+    port        = 6379
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  },
+  {
+    description = "Ingress rule for api"
+    type        = "ingress"
+    port        = 3000
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  },
+  {
+    description = "Egress rule for anywere"
+    type        = "egress"
+    port        = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+]
+
 
 

@@ -132,3 +132,12 @@ variable "alb_type" {
   description = "ALB Type"
   type        = string
 }
+
+############
+# SG  Vars #
+############
+
+variable "ecs_cidr_rules" {
+  description = "list of ingress rules for ecs security group. CIDR only"
+  type        = list(any)
+}
