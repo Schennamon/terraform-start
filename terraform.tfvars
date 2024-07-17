@@ -99,5 +99,26 @@ ecs_cidr_rules = [
   }
 ]
 
-
-
+alb_cidr_rules = [
+  {
+    description = "Ingress rule for HTTP"
+    type        = "ingress"
+    protocol    = "tcp"
+    port        = 80
+    cidr_blocks = ["0.0.0.0/0"]
+  },
+  {
+    description = "Ingress rule for HTTPS"
+    type        = "ingress"
+    port        = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  },
+  {
+    description = "Egress rule for anywere"
+    type        = "egress"
+    port        = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+]

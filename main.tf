@@ -59,6 +59,17 @@ resource "aws_security_group" "ecs" {
   }
 }
 
+resource "aws_security_group" "alb" {
+  count  = 1
+  vpc_id = data.aws_vpc.default.id
+  name   = "alb"
+
+  tags = {
+    "Section"  = "Security",
+    "Resource" = "sg"
+  }
+}
+
 ############
 # SG Rules #
 ############
@@ -72,6 +83,17 @@ resource "aws_security_group_rule" "ecs_cidr" {
   to_port           = element(var.ecs_cidr_rules, count.index)["port"]
   cidr_blocks       = element(var.ecs_cidr_rules, count.index)["cidr_blocks"]
   security_group_id = aws_security_group.ecs[0].id
+}
+
+resource "aws_security_group_rule" "alb_cidr" {
+  count             = length(var.alb_cidr_rules)
+  description       = element(var.alb_cidr_rules, count.index)["description"] #"Rules to allow inbound traffic for alb by port for cidr"
+  type              = element(var.alb_cidr_rules, count.index)["type"]
+  protocol          = element(var.alb_cidr_rules, count.index)["protocol"]
+  from_port         = element(var.alb_cidr_rules, count.index)["port"]
+  to_port           = element(var.alb_cidr_rules, count.index)["port"]
+  cidr_blocks       = element(var.alb_cidr_rules, count.index)["cidr_blocks"]
+  security_group_id = aws_security_group.alb[0].id
 }
 
 #############
@@ -291,6 +313,7 @@ resource "aws_lb" "application" {
   name                       = var.alb_name
   load_balancer_type         = var.alb_type
   subnets                    = data.aws_subnet_ids.default.ids
+  security_groups            = [aws_security_group.alb[0].id]
   internal                   = false
   drop_invalid_header_fields = true
   desync_mitigation_mode     = "defensive"
