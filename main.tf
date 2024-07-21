@@ -5,7 +5,7 @@
 resource "aws_security_group" "rds_sg" {
   name        = "rds-sg"
   description = "Security group for RDS instance"
-  vpc_id      = data.aws_vpc.default.id
+  vpc_id      = aws_vpc.main.id
 
   ingress {
     from_port   = 5432
@@ -24,7 +24,7 @@ resource "aws_security_group" "rds_sg" {
 resource "aws_security_group" "elasticache_sg" {
   name        = "elasticache-sg"
   description = "Security group for ElastiCache cluster"
-  vpc_id      = data.aws_vpc.default.id
+  vpc_id      = aws_vpc.main.id
 
   ingress {
     description      = "Redis"
@@ -50,7 +50,7 @@ resource "aws_security_group" "elasticache_sg" {
 
 resource "aws_security_group" "ecs" {
   count  = 1
-  vpc_id = data.aws_vpc.default.id
+  vpc_id = aws_vpc.main.id
   name   = "ecs"
 
   tags = {
@@ -61,7 +61,7 @@ resource "aws_security_group" "ecs" {
 
 resource "aws_security_group" "alb" {
   count  = 1
-  vpc_id = data.aws_vpc.default.id
+  vpc_id = aws_vpc.main.id
   name   = "alb"
 
   tags = {
@@ -100,6 +100,9 @@ resource "aws_security_group_rule" "alb_cidr" {
 #    RDS    #
 #############
 
+
+# TODO: Modify username & password
+
 resource "aws_db_instance" "postgres" {
   engine                 = "postgres"
   port                   = "5432"
@@ -109,9 +112,9 @@ resource "aws_db_instance" "postgres" {
   username               = var.rds_postgres_username
   password               = var.rds_postgres_password
   availability_zone      = "${data.aws_region.current.name}b"
-  db_subnet_group_name   = ""
+  db_subnet_group_name   = aws_db_subnet_group.rds.name
   vpc_security_group_ids = [aws_security_group.rds_sg.id]
-  publicly_accessible    = true
+  publicly_accessible    = false
   skip_final_snapshot    = true
   multi_az               = false
   tags = {
@@ -134,7 +137,7 @@ resource "aws_elasticache_cluster" "redis" {
   port                      = var.elc_redis_port
   security_group_ids        = [aws_security_group.elasticache_sg.id]
   num_cache_nodes           = "1"
-  subnet_group_name         = ""
+  subnet_group_name         = aws_elasticache_subnet_group.this.name
   tags = {
     "Section"  = "Data-store",
     "Resource" = "Elasticache_cluster_redis"
@@ -144,6 +147,9 @@ resource "aws_elasticache_cluster" "redis" {
 #############
 #    ECS    #
 #############
+
+# TODO: Move JSON to template
+# TODO: User Var for port ELC
 
 resource "aws_ecs_task_definition" "rails_api" {
   requires_compatibilities = ["FARGATE"]
@@ -283,6 +289,7 @@ resource "aws_ecs_service" "rails_api" {
   task_definition      = aws_ecs_task_definition.rails_api.arn
   depends_on           = [aws_db_instance.postgres, aws_elasticache_cluster.redis, aws_ecs_task_definition.rails_api]
 
+  # TODO: Use exists Var
   load_balancer {
     target_group_arn = aws_alb_target_group.api[0].arn
     container_name   = jsondecode(aws_ecs_task_definition.rails_api.container_definitions)[0].name
@@ -290,7 +297,7 @@ resource "aws_ecs_service" "rails_api" {
   }
 
   network_configuration {
-    subnets          = data.aws_subnet_ids.default.ids
+    subnets          = [aws_subnet.public_1.id, aws_subnet.public_2.id, aws_subnet.public_3.id]
     security_groups  = [aws_security_group.ecs[0].id]
     assign_public_ip = true
   }
@@ -302,7 +309,7 @@ resource "aws_ecs_service" "rails_api" {
 
 resource "aws_alb_target_group" "api" {
   count       = 1
-  vpc_id      = data.aws_vpc.default.id
+  vpc_id      = aws_vpc.main.id
   name        = var.api_target_group_name
   port        = var.api_target_group_port
   protocol    = "HTTP"
@@ -312,7 +319,7 @@ resource "aws_alb_target_group" "api" {
 resource "aws_lb" "application" {
   name                       = var.alb_name
   load_balancer_type         = var.alb_type
-  subnets                    = data.aws_subnet_ids.default.ids
+  subnets                    = [aws_subnet.public_1.id, aws_subnet.public_2.id, aws_subnet.public_3.id]
   security_groups            = [aws_security_group.alb[0].id]
   internal                   = false
   drop_invalid_header_fields = true
@@ -337,4 +344,91 @@ resource "aws_alb_listener" "http" {
       "Resource" = "Listener"
     })
   ))
+}
+
+#############
+#    VPC    #
+#############
+
+resource "aws_internet_gateway" "this" {
+  vpc_id = aws_vpc.main.id
+}
+
+resource "aws_route_table" "public" {
+  vpc_id = aws_vpc.main.id
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.this.id
+  }
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.this.id
+  }
+}
+
+resource "aws_route_table_association" "public_1" {
+  subnet_id      = aws_subnet.public_1.id
+  route_table_id = aws_route_table.public.id
+}
+
+resource "aws_route_table_association" "public_2" {
+  subnet_id      = aws_subnet.public_2.id
+  route_table_id = aws_route_table.public.id
+}
+
+resource "aws_route_table_association" "public_3" {
+  subnet_id      = aws_subnet.public_3.id
+  route_table_id = aws_route_table.public.id
+}
+
+resource "aws_vpc" "main" {
+  cidr_block           = "10.0.0.0/16"
+  instance_tenancy     = "default"
+  enable_dns_hostnames = true
+  enable_dns_support   = true
+  tags                 = {
+    Name = "rails-api"
+  }
+}
+
+resource "aws_db_subnet_group" "rds" {
+  name       = "rds-subnet"
+  subnet_ids = [aws_subnet.public_1.id, aws_subnet.public_2.id, aws_subnet.public_3.id]
+}
+
+resource "aws_elasticache_subnet_group" "this" {
+  name       = "elc-subnet"
+  subnet_ids = [aws_subnet.public_1.id, aws_subnet.public_2.id, aws_subnet.public_3.id]
+}
+
+resource "aws_subnet" "public_1" {
+  vpc_id                  = aws_vpc.main.id
+  cidr_block              = "10.0.1.0/24"
+  availability_zone       = "${data.aws_region.current.name}a"
+  map_public_ip_on_launch = true
+  tags                    = {
+    Name = "pub1"
+  }
+}
+
+resource "aws_subnet" "public_2" {
+  vpc_id                  = aws_vpc.main.id
+  availability_zone       = "${data.aws_region.current.name}b"
+  cidr_block              = "10.0.2.0/24"
+  map_public_ip_on_launch = true
+  tags                    = {
+    Name = "pub2"
+  }
+}
+
+resource "aws_subnet" "public_3" {
+  vpc_id                  = aws_vpc.main.id
+  availability_zone       = "${data.aws_region.current.name}c"
+  cidr_block              = "10.0.3.0/24"
+  map_public_ip_on_launch = true
+  tags                    = {
+    Name = "pub3"
+  }
 }
