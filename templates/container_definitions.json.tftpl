@@ -1,0 +1,112 @@
+[
+    {
+        "name": "${api_container_name}",
+        "image": "${task_image}",
+        "cpu": 0,
+        "portMappings": [
+            {
+                "name": "rails-${rails_port}-tcp",
+                "containerPort": ${rails_port},
+                "hostPort": ${rails_port},
+                "protocol": "tcp",
+                "appProtocol": "http"
+            }
+        ],
+        "essential": true,
+        "command": ["./bin/rails", "server", "-b", "0.0.0.0"],
+        "environment": [
+            {
+                "name": "RAILS_ENV",
+                "value": "development"
+            },
+            {
+                "name": "DB_PORT",
+                "value": "5432"
+            },
+            {
+                "name": "DB_USER",
+                "value": "${db_username}"
+            },
+            {
+                "name": "DB_HOST",
+                "value": "${db_host}"
+            },
+            {
+                "name": "SECRET_KEY_BASE",
+                "value": "83e5a992e2c1a3e4da087195fc96a9d4dad34760c1e617fd92ee25cc9640662600cf35d5fe022d3804bb29928a18738fd1778655512928d0fa2c81cf0573b7e5"
+            },
+            {
+                "name": "DB_PASSWORD",
+                "value": "${db_password}"
+            },
+            {
+                "name": "REDIS_URL",
+                "value": "${redis_url}"
+            }
+        ],
+        "logConfiguration": {
+            "logDriver": "awslogs",
+            "options": {
+                "awslogs-group": "/ecs/test-rails-app",
+                "awslogs-create-group": "true",
+                "awslogs-region": "eu-north-1",
+                "awslogs-stream-prefix": "ecs"
+            }
+        }
+    },
+    {
+        "name": "${sidekiq_container_name}",
+        "image": "${task_image}",
+        "cpu": 0,
+        "portMappings": [
+            {
+                "name": "redis-${redis_port}-tcp",
+                "containerPort": ${redis_port},
+                "hostPort": ${redis_port},
+                "protocol": "tcp",
+                "appProtocol": "http"
+            }
+        ],
+        "essential": true,
+        "command": ["bundle", "exec", "sidekiq"],
+        "environment": [
+            {
+                "name": "RAILS_ENV",
+                "value": "development"
+            },
+            {
+                "name": "DB_PORT",
+                "value": "5432"
+            },
+            {
+                "name": "DB_USER",
+                "value": "${db_username}"
+            },
+            {
+                "name": "DB_HOST",
+                "value": "${db_host}"
+            },
+            {
+                "name": "SECRET_KEY_BASE",
+                "value": "83e5a992e2c1a3e4da087195fc96a9d4dad34760c1e617fd92ee25cc9640662600cf35d5fe022d3804bb29928a18738fd1778655512928d0fa2c81cf0573b7e5"
+            },
+            {
+                "name": "DB_PASSWORD",
+                "value": "${db_password}"
+            },
+            {
+                "name": "REDIS_URL",
+                "value": "${redis_url}"
+            }
+        ],
+        "logConfiguration": {
+            "logDriver": "awslogs",
+            "options": {
+                "awslogs-group": "/ecs/test-rails-app",
+                "awslogs-create-group": "true",
+                "awslogs-region": "eu-north-1",
+                "awslogs-stream-prefix": "ecs"
+            }
+        }
+    }
+]

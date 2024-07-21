@@ -100,8 +100,17 @@ resource "aws_security_group_rule" "alb_cidr" {
 #    RDS    #
 #############
 
+resource "random_string" "user" {
+  length  = 16
+  special = false
+  numeric = false
+}
 
-# TODO: Modify username & password
+resource "random_password" "password" {
+  length           = 16
+  special          = true
+  override_special = "!#$%&*()-_=+[]{}<>:?"
+}
 
 resource "aws_db_instance" "postgres" {
   engine                 = "postgres"
@@ -109,8 +118,8 @@ resource "aws_db_instance" "postgres" {
   allocated_storage      = var.rds_allocated_storage
   engine_version         = var.rds_engine_version
   instance_class         = var.rds_instance_class
-  username               = var.rds_postgres_username
-  password               = var.rds_postgres_password
+  username               = random_string.user.result
+  password               = random_password.password.result
   availability_zone      = "${data.aws_region.current.name}b"
   db_subnet_group_name   = aws_db_subnet_group.rds.name
   vpc_security_group_ids = [aws_security_group.rds_sg.id]
@@ -148,9 +157,6 @@ resource "aws_elasticache_cluster" "redis" {
 #    ECS    #
 #############
 
-# TODO: Move JSON to template
-# TODO: User Var for port ELC
-
 resource "aws_ecs_task_definition" "rails_api" {
   requires_compatibilities = ["FARGATE"]
   family                   = var.ecs_service_name
@@ -159,118 +165,19 @@ resource "aws_ecs_task_definition" "rails_api" {
   memory                   = var.ecs_memory_capacity
   execution_role_arn       = "arn:aws:iam::381491891122:role/ecsTaskExecutionRole"
 
-  container_definitions = jsonencode([
+  container_definitions = templatefile("./templates/container_definitions.json.tftpl",
     {
-      name      = var.ecs_service_name
-      image     = var.ecr_rails_image
-      cpu       = 0
-      portMappings = [
-        {
-          name          = "rails-${var.ecs_rails_port}-tcp"
-          containerPort = var.ecs_rails_port
-          hostPort      = var.ecs_rails_port
-          protocol      = "tcp"
-          appProtocol   = "http"
-        }
-      ]
-      essential = true
-      command   = ["./bin/rails", "server", "-b", "0.0.0.0"]
-      environment = [
-        {
-          name  = "RAILS_ENV"
-          value = "development"
-        },
-        {
-          name  = "DB_PORT"
-          value = "5432"
-        },
-        {
-          name  = "DB_USER"
-          value = var.rds_postgres_username
-        },
-        {
-          name  = "DB_HOST"
-          value = aws_db_instance.postgres.address
-        },
-        {
-          name  = "SECRET_KEY_BASE"
-          value = "83e5a992e2c1a3e4da087195fc96a9d4dad34760c1e617fd92ee25cc9640662600cf35d5fe022d3804bb29928a18738fd1778655512928d0fa2c81cf0573b7e5"
-        },
-        {
-          name  = "DB_PASSWORD"
-          value = var.rds_postgres_password
-        },
-        {
-          name  = "REDIS_URL"
-          value = "redis://${aws_elasticache_cluster.redis.cache_nodes[0].address}:${aws_elasticache_cluster.redis.cache_nodes[0].port}"
-        }
-      ]
-      logConfiguration = {
-        logDriver = "awslogs"
-        options = {
-          "awslogs-group"         = "/ecs/test-rails-app"
-          "awslogs-create-group"  = "true"
-          "awslogs-region"        = "eu-north-1"
-          "awslogs-stream-prefix" = "ecs"
-        }
-      }
-    },
-    {
-      name      = var.ecs_sidekiq_name
-      image     = var.ecr_rails_image
-      cpu       = 0
-      portMappings = [
-        {
-          name          = "redis-${var.elc_redis_port}-tcp"
-          containerPort = var.elc_redis_port
-          hostPort      = var.elc_redis_port
-          protocol      = "tcp"
-          appProtocol   = "http"
-        }
-      ]
-      essential = true
-      command   = ["bundle", "exec", "sidekiq"]
-      environment = [
-        {
-          name  = "RAILS_ENV"
-          value = "development"
-        },
-        {
-          name  = "DB_PORT"
-          value = "5432"
-        },
-        {
-          name  = "DB_USER"
-          value = var.rds_postgres_username
-        },
-        {
-          name  = "DB_HOST"
-          value = aws_db_instance.postgres.address
-        },
-        {
-          name  = "SECRET_KEY_BASE"
-          value = "83e5a992e2c1a3e4da087195fc96a9d4dad34760c1e617fd92ee25cc9640662600cf35d5fe022d3804bb29928a18738fd1778655512928d0fa2c81cf0573b7e5"
-        },
-        {
-          name  = "DB_PASSWORD"
-          value = var.rds_postgres_password
-        },
-        {
-          name  = "REDIS_URL"
-          value = "redis://${aws_elasticache_cluster.redis.cache_nodes[0].address}:${aws_elasticache_cluster.redis.cache_nodes[0].port}"
-        }
-      ]
-      logConfiguration = {
-        logDriver = "awslogs"
-        options = {
-          "awslogs-group"         = "/ecs/test-rails-app"
-          "awslogs-create-group"  = "true"
-          "awslogs-region"        = "eu-north-1"
-          "awslogs-stream-prefix" = "ecs"
-        }
-      }
+      api_container_name     = var.ecs_service_name,
+      sidekiq_container_name = var.ecs_sidekiq_name
+      task_image             = var.ecr_rails_image,
+      rails_port             = var.ecs_rails_port,
+      db_host                = aws_db_instance.postgres.address,
+      db_username            = random_string.user.result,
+      db_password            = random_password.password.result,
+      redis_url              = "redis://${aws_elasticache_cluster.redis.cache_nodes[0].address}:${var.elc_redis_port}",
+      redis_port             = var.elc_redis_port,
     }
-  ])
+  )
 
   depends_on = [aws_db_instance.postgres, aws_elasticache_cluster.redis]
 }
@@ -289,10 +196,9 @@ resource "aws_ecs_service" "rails_api" {
   task_definition      = aws_ecs_task_definition.rails_api.arn
   depends_on           = [aws_db_instance.postgres, aws_elasticache_cluster.redis, aws_ecs_task_definition.rails_api]
 
-  # TODO: Use exists Var
   load_balancer {
     target_group_arn = aws_alb_target_group.api[0].arn
-    container_name   = jsondecode(aws_ecs_task_definition.rails_api.container_definitions)[0].name
+    container_name   = var.ecs_service_name
     container_port   = var.ecs_rails_port
   }
 
