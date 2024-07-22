@@ -1,3 +1,90 @@
+#############
+#    VPC    #
+#############
+
+resource "aws_internet_gateway" "this" {
+  vpc_id = aws_vpc.main.id
+}
+
+resource "aws_route_table" "public" {
+  vpc_id = aws_vpc.main.id
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.this.id
+  }
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.this.id
+  }
+}
+
+resource "aws_route_table_association" "public_1" {
+  subnet_id      = aws_subnet.public_1.id
+  route_table_id = aws_route_table.public.id
+}
+
+resource "aws_route_table_association" "public_2" {
+  subnet_id      = aws_subnet.public_2.id
+  route_table_id = aws_route_table.public.id
+}
+
+resource "aws_route_table_association" "public_3" {
+  subnet_id      = aws_subnet.public_3.id
+  route_table_id = aws_route_table.public.id
+}
+
+resource "aws_vpc" "main" {
+  cidr_block           = "10.0.0.0/16"
+  instance_tenancy     = "default"
+  enable_dns_hostnames = true
+  enable_dns_support   = true
+  tags                 = {
+    Name = "rails-api"
+  }
+}
+
+resource "aws_db_subnet_group" "rds" {
+  name       = "rds-subnet"
+  subnet_ids = [aws_subnet.public_1.id, aws_subnet.public_2.id, aws_subnet.public_3.id]
+}
+
+resource "aws_elasticache_subnet_group" "this" {
+  name       = "elc-subnet"
+  subnet_ids = [aws_subnet.public_1.id, aws_subnet.public_2.id, aws_subnet.public_3.id]
+}
+
+resource "aws_subnet" "public_1" {
+  vpc_id                  = aws_vpc.main.id
+  cidr_block              = "10.0.1.0/24"
+  availability_zone       = "${data.aws_region.current.name}a"
+  map_public_ip_on_launch = true
+  tags                    = {
+    Name = "pub1"
+  }
+}
+
+resource "aws_subnet" "public_2" {
+  vpc_id                  = aws_vpc.main.id
+  availability_zone       = "${data.aws_region.current.name}b"
+  cidr_block              = "10.0.2.0/24"
+  map_public_ip_on_launch = true
+  tags                    = {
+    Name = "pub2"
+  }
+}
+
+resource "aws_subnet" "public_3" {
+  vpc_id                  = aws_vpc.main.id
+  availability_zone       = "${data.aws_region.current.name}c"
+  cidr_block              = "10.0.3.0/24"
+  map_public_ip_on_launch = true
+  tags                    = {
+    Name = "pub3"
+  }
+}
+
 ##############
 # Static SG  #
 ##############
@@ -42,7 +129,6 @@ resource "aws_security_group" "elasticache_sg" {
     cidr_blocks  = ["0.0.0.0/0"]
   }
 }
-
 
 ###############
 # Dynamic SG  #
@@ -194,10 +280,10 @@ resource "aws_ecs_service" "rails_api" {
   propagate_tags       = "SERVICE"
   cluster              = aws_ecs_cluster.rails_cluster.id
   task_definition      = aws_ecs_task_definition.rails_api.arn
-  depends_on           = [aws_db_instance.postgres, aws_elasticache_cluster.redis, aws_ecs_task_definition.rails_api]
+  depends_on           = [aws_ecs_task_definition.rails_api]
 
   load_balancer {
-    target_group_arn = aws_alb_target_group.api[0].arn
+    target_group_arn = aws_alb_target_group.api.arn
     container_name   = var.ecs_service_name
     container_port   = var.ecs_rails_port
   }
@@ -205,7 +291,7 @@ resource "aws_ecs_service" "rails_api" {
   network_configuration {
     subnets          = [aws_subnet.public_1.id, aws_subnet.public_2.id, aws_subnet.public_3.id]
     security_groups  = [aws_security_group.ecs[0].id]
-    assign_public_ip = true
+    assign_public_ip = false
   }
 }
 
@@ -214,7 +300,6 @@ resource "aws_ecs_service" "rails_api" {
 #############
 
 resource "aws_alb_target_group" "api" {
-  count       = 1
   vpc_id      = aws_vpc.main.id
   name        = var.api_target_group_name
   port        = var.api_target_group_port
@@ -233,108 +318,19 @@ resource "aws_lb" "application" {
 }
 
 resource "aws_alb_listener" "http" {
-  depends_on = [
-    aws_lb.application,
-  ]
   load_balancer_arn = aws_lb.application.arn
   protocol          = "HTTP"
   port              = var.api_target_group_port
 
   default_action {
     type             = "forward"
-    target_group_arn = aws_alb_target_group.api[0].arn
-  }
-  tags = (merge(
-    tomap({
-      "Section"  = "Networking",
-      "Resource" = "Listener"
-    })
-  ))
-}
-
-#############
-#    VPC    #
-#############
-
-resource "aws_internet_gateway" "this" {
-  vpc_id = aws_vpc.main.id
-}
-
-resource "aws_route_table" "public" {
-  vpc_id = aws_vpc.main.id
-
-  route {
-    cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.this.id
+    target_group_arn = aws_alb_target_group.api.arn
   }
 
-  route {
-    cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.this.id
-  }
-}
+  depends_on = [aws_lb.application]
 
-resource "aws_route_table_association" "public_1" {
-  subnet_id      = aws_subnet.public_1.id
-  route_table_id = aws_route_table.public.id
-}
-
-resource "aws_route_table_association" "public_2" {
-  subnet_id      = aws_subnet.public_2.id
-  route_table_id = aws_route_table.public.id
-}
-
-resource "aws_route_table_association" "public_3" {
-  subnet_id      = aws_subnet.public_3.id
-  route_table_id = aws_route_table.public.id
-}
-
-resource "aws_vpc" "main" {
-  cidr_block           = "10.0.0.0/16"
-  instance_tenancy     = "default"
-  enable_dns_hostnames = true
-  enable_dns_support   = true
-  tags                 = {
-    Name = "rails-api"
-  }
-}
-
-resource "aws_db_subnet_group" "rds" {
-  name       = "rds-subnet"
-  subnet_ids = [aws_subnet.public_1.id, aws_subnet.public_2.id, aws_subnet.public_3.id]
-}
-
-resource "aws_elasticache_subnet_group" "this" {
-  name       = "elc-subnet"
-  subnet_ids = [aws_subnet.public_1.id, aws_subnet.public_2.id, aws_subnet.public_3.id]
-}
-
-resource "aws_subnet" "public_1" {
-  vpc_id                  = aws_vpc.main.id
-  cidr_block              = "10.0.1.0/24"
-  availability_zone       = "${data.aws_region.current.name}a"
-  map_public_ip_on_launch = true
-  tags                    = {
-    Name = "pub1"
-  }
-}
-
-resource "aws_subnet" "public_2" {
-  vpc_id                  = aws_vpc.main.id
-  availability_zone       = "${data.aws_region.current.name}b"
-  cidr_block              = "10.0.2.0/24"
-  map_public_ip_on_launch = true
-  tags                    = {
-    Name = "pub2"
-  }
-}
-
-resource "aws_subnet" "public_3" {
-  vpc_id                  = aws_vpc.main.id
-  availability_zone       = "${data.aws_region.current.name}c"
-  cidr_block              = "10.0.3.0/24"
-  map_public_ip_on_launch = true
-  tags                    = {
-    Name = "pub3"
+  tags = {
+    "Section"  = "Networking",
+    "Resource" = "Listener"
   }
 }
