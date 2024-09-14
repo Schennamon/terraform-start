@@ -8,10 +8,6 @@ rds_engine_version = "13"
 
 rds_instance_class = "db.t3.micro"
 
-rds_postgres_password = "postgres"
-
-rds_postgres_username = "postgres"
-
 ############
 # ELC Vars #
 ############

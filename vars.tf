@@ -17,16 +17,6 @@ variable "rds_instance_class" {
   type        = string
 }
 
-variable "rds_postgres_password" {
-  description = "password for rds postgres"
-  type        = string
-}
-
-variable "rds_postgres_username" {
-  description = "username for rds postgres"
-  type        = string
-}
-
 ############
 # ELC Vars #
 ############

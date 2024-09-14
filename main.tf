@@ -22,36 +22,14 @@ module "sec_groups" {
 #    RDS    #
 #############
 
-resource "random_string" "user" {
-  length  = 16
-  special = false
-  numeric = false
-}
-
-resource "random_password" "password" {
-  length           = 16
-  special          = true
-  override_special = "!#$%&*()-_=+[]{}<>:?"
-}
-
-resource "aws_db_instance" "postgres" {
-  engine                 = "postgres"
-  port                   = "5432"
-  allocated_storage      = var.rds_allocated_storage
-  engine_version         = var.rds_engine_version
-  instance_class         = var.rds_instance_class
-  username               = random_string.user.result
-  password               = random_password.password.result
-  availability_zone      = "${data.aws_region.current.name}b"
-  db_subnet_group_name   = module.vpc.rds_group_name
-  vpc_security_group_ids = [module.sec_groups.rds_sg_id]
-  publicly_accessible    = false
-  skip_final_snapshot    = true
-  multi_az               = false
-  tags = {
-    "Section"  = "data_store",
-    "Resource" = "rds-instance"
-  }
+module "rds" {
+  source                 = "./modules/rds"
+  sg_id                  = module.sec_groups.rds_sg_id
+  aws_region_name        = data.aws_region.current.name
+  subnet_group_name      = module.vpc.rds_group_name
+  rds_engine_version     = var.rds_engine_version
+  rds_instance_class     = var.rds_instance_class
+  rds_allocated_storage  = var.rds_allocated_storage
 }
 
 #############
@@ -93,15 +71,15 @@ resource "aws_ecs_task_definition" "rails_api" {
       sidekiq_container_name = var.ecs_sidekiq_name
       task_image             = var.ecr_rails_image,
       rails_port             = var.ecs_rails_port,
-      db_host                = aws_db_instance.postgres.address,
-      db_username            = random_string.user.result,
-      db_password            = random_password.password.result,
+      db_host                = module.rds.db_host,
+      db_username            = module.rds.db_user,
+      db_password            = module.rds.db_password,
       redis_url              = "redis://${aws_elasticache_cluster.redis.cache_nodes[0].address}:${var.elc_redis_port}",
       redis_port             = var.elc_redis_port,
     }
   )
 
-  depends_on = [aws_db_instance.postgres, aws_elasticache_cluster.redis]
+  depends_on = [aws_elasticache_cluster.redis]
 }
 
 resource "aws_ecs_cluster" "rails_cluster" {
